@@ -1,0 +1,170 @@
+#!/bin/bash
+
+# create_virt_net
+# Create libvirt virtual network
+
+export LANG=C
+
+# parameters
+name="default"
+bridge=
+ip=
+mask=
+dhcp=
+dev=
+nat_port=
+state=autostart
+#dhcp="172.20.0.10:172.20.0.250"
+#dev="eth0"
+#nat_port="1024:65535"
+
+. $1
+
+xmlfile=$HOME/.virt-nets/$name.xml
+
+######################################################################
+# For ansible
+#
+changed=false
+failed=false
+rc=0
+exit_ansible() {
+        local x
+        if [ "$1" != "" ]; then
+                rc=$1
+        fi
+        if [ "$rc" != "0" ]; then
+                failed=true
+        fi
+        if [ ! -z "$msg" ]; then
+                x=", \"msg\": \"$msg\""
+        fi
+        echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }"
+        exit $rc
+}
+
+is_true() {
+        local var=$1
+
+        if [ -z "$var" ]; then
+                return 1
+        fi
+        if [ "$var" = "0" ]; then
+                return 1
+        fi
+        if (echo "$var" | grep -qi "^\(false\|no\)$"); then
+                return 1
+        fi
+
+        return 0
+}
+
+create_net_xml() {
+	local uuid=$(uuidgen)
+	local forward_entry=
+	local dhcp_entry=
+
+	local s
+	local e
+	local ent
+
+	if [ "${nat_port}" ]; then
+		s=${nat_port%%:*}
+		e=${nat_port##*:}
+		ent="<forward dev='$dev' mode='nat'>"
+		ent="$ent<nat><port start='$s' end='$e'/></nat>"
+		ent="$ent<interface dev='$dev'/>"
+		forwardentry="$ent</forward>"
+	fi
+
+
+	if [ "${ip}" -a "${mask}" ]; then
+		ent="<ip address='$ip' netmask='$mask'>"
+		if [ "${dhcp}" ]; then
+			s=${dhcp%%:*}
+			e=${dhcp##*:}
+    			ent="$ent<dhcp><range start='$s' end='$e' /></dhcp>"
+		fi
+		ipentry="$ent</ip>"
+	fi
+
+	mkdir -p $(dirname $xmlfile)
+	cat <<EOF > $xmlfile
+<network>
+  <name>${name}</name>
+  <uuid>${uuid}</uuid>
+  ${forwardentry}
+  <bridge name='${bridge}' stp='on' delay='0' />
+  ${ipentry}
+</network>
+EOF
+}
+
+function net_status() {
+	local infotype=$1
+
+	if [ -z "$infotype" ]; then
+		return
+	fi
+	virsh net-info $name 2>/dev/null | \
+		awk "\$1==\"$infotype:\" {print \$2}"
+}
+
+####################################################################
+# Current state
+started=$(net_status "Active")
+autostart=$(net_status "Autostart")
+
+####################################################################
+# state=undefined
+
+if [ "$state" = "undefined" ]; then
+	if [ -z "$started" ]; then
+		# not defined, ok
+		exit_ansible
+	fi
+	if [ "$started" = "yes" ]; then
+		if ! virsh net-destroy $name; then
+			failed=true
+			exit_ansible 2
+		fi
+		changed=true
+	fi
+	if ! virsh net-undefine $name; then
+		failed=true
+		exit_ansible 2
+	fi
+	changed=true
+	exit_ansible
+fi
+
+####################################################################
+# Create
+
+# define
+if [ -z "$started" ]; then
+	create_net_xml
+	if ! virsh net-define $xmlfile; then
+		failed=true
+		rc=1
+	fi
+	changed=true
+fi
+# start
+if [ "$started" != "yes" ]; then
+	if ! virsh net-start $name; then
+		failed=true
+		rc=2
+	fi
+	changed=true
+fi
+# set autostart
+if [ "$autostart" != "yes" ]; then
+	if ! virsh net-autostart $name; then
+		failed=true
+		rc=3
+	fi
+	changed=true
+fi
+
+exit_ansible

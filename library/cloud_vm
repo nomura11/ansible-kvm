@@ -1,0 +1,196 @@
+#!/bin/bash
+
+# create_cloud_vm
+# Create a VM from cloud-init aware guest image
+
+# parameters
+imagedir=/var/lib/libvirt/images
+cpus=2
+mem=4096
+networks="management"
+ipaddr=""
+vmname=testvm
+baseimage=$imagedir/test.img
+pubkeyfile=$HOME/.ssh/id_rsa
+baseworkdir=$HOME/.create_cloud_vm/work
+data_disks=16
+startvm=false
+cloud_init=true
+
+# read args
+. $1
+
+######################################################################
+workdir=$baseworkdir/$vmname
+logfile=$baseworkdir/$vmname/create.log
+
+######################################################################
+# For ansible
+#
+changed=false
+failed=false
+rc=0
+exit_ansible() {
+	local x
+	if [ "$1" != "" ]; then
+		rc=$1
+	fi
+        if [ "$rc" != "0" ]; then
+                failed=true
+        fi
+	if [ ! -z "$msg" ]; then
+		x=", \"msg\": \"$msg\""
+	fi
+        echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }"
+        exit $rc
+}
+
+is_true() {
+	local var=$1
+
+	if [ -z "$var" ]; then
+		return 1
+	fi
+	if [ "$var" = "0" ]; then
+		return 1
+	fi
+	if (echo "$var" | grep -qi "^\(false\|no\)$"); then
+		return 1
+	fi
+
+	return 0
+}
+
+######################################################################
+
+if [ -z "$vmname" ] || [ ! -f "$baseimage" ]; then
+	msg="missing file"
+	exit_ansible 1
+fi
+
+mkdir -p $workdir
+
+######################################################################
+#
+# Create cloud-config
+#
+
+isofile=$imagedir/$vmname-userdata.iso
+cdopt=
+if is_true ${cloud_init}; then
+	if [ ! -f "$pubkeyfile" ]; then
+		msg="missing pubkey"
+		exit_ansible 1
+	fi
+
+	cat <<EOF > $workdir/user-data 
+#cloud-config
+ssh_pwauth: True
+ssh_authorized_keys:
+  - $(cat $pubkeyfile)
+EOF
+
+	cat <<EOF > $workdir/meta-data 
+instance-id: id-$vmname
+local-hostname: $vmname
+EOF
+
+	(cd $workdir;
+	 genisoimage -output $isofile \
+		-joliet -rock -input-charset utf-8 \
+		-volid cidata user-data meta-data) >> $logfile 2>&1
+	if [ ! -e $isofile ]; then
+		msg="iso creation failed"
+		exit_ansible 1
+	fi
+
+	cdopt=" --disk path=${isofile},device=cdrom,bus=ide "
+fi
+
+######################################################################
+#
+# Create VM
+#
+
+dopt=",format=qcow2,bus=virtio"
+nopt=",model=virtio"
+
+create_node() {
+	local name=$1
+	local netopts
+
+	if virsh dominfo $name >& /dev/null ; then
+		echo "Domain $name already exists" >> $logfile
+		return 0
+	fi
+
+	net0=
+	for net in $NETWORKS; do
+		if [ -z "$net0" ]; then
+			net0=$net
+		fi
+		netopts="$netopts --net network=${net}${nopt}"
+	done
+
+	cp ${baseimage} ${imagedir}/${name}.img
+	if [ ! -f ${imagedir}/${name}.img ]; then
+		return 1
+	fi
+
+	diskopts=
+	nr=2
+	for sz in ${data_disks}; do
+		dpath=${imagedir}/${name}-${nr}.img
+		if [ -e "$dpath" ]; then
+			exit_ansible 1
+		fi
+		qemu-img create -f qcow2 ${dpath} ${sz}G
+		diskopts="$diskopts --disk path=${dpath}${dopt},size=$sz"
+		nr=$((nr + 1))
+	done
+	virt-install --quiet --name ${name} \
+		--vcpus ${CPUS} --ram ${MEM} \
+		--disk path=${imagedir}/${name}.img${dopt} \
+		${diskopts} \
+		${cdopt} \
+		${netopts} \
+		--import --noautoconsole --graphics vnc >> $logfile 2>&1
+	if [ $? -ne 0 ]; then
+		echo "Creation of $name failed" >> $logfile
+		return 1
+	fi
+
+	virsh destroy ${name} >& /dev/null
+
+	# XXXX
+	if [ -z "$ipaddr" ] || [ -z "$net0" ]; then
+		return 2
+	fi
+
+	local mac=$(virsh domiflist $name | awk "\$3 == \"$net0\" {print \$5}")
+	local xml="<host mac='${mac}' name='${name}' ip='${ipaddr}' />"
+	virsh net-update $net0 add ip-dhcp-host "$xml" --live --config \
+		>> $logfile 2>&1
+	if [ $? -ne 0 ]; then
+		echo "Failed to update DHCP info for $name" >> $logfile
+		virsh undefine ${name} >& /dev/null
+		return 1
+	fi
+
+	# Add to /etc/hosts
+	echo "${ipaddr} ${name}" >> /etc/hosts
+	return 2
+}
+
+CPUS=${cpus} MEM=${mem} NETWORKS="${networks}" create_node $vmname $*
+rc=$?
+if [ $rc -eq 2 ]; then
+	changed=1
+	rc=0
+	if is_true $startvm; then
+		msg="started $name"
+		virsh start $name >> $logfile 2>&1
+	fi
+fi
+
+exit_ansible
