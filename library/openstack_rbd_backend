@@ -1,0 +1,162 @@
+#!/bin/bash
+
+#
+# Configure RBD backend for OpenStack
+# (Expected to run on one of storage node)
+#
+
+pgnum=128
+#controllers="m1"
+controllers=
+#computes="c1 c2"
+computes=
+uuid=$(uuidgen)
+
+# read args
+. $1
+
+nodes="$controllers $computes"
+secretfile=/home/ceph/secret.xml
+marker=/root/rbd_backend_done
+logfile=/tmp/ansible_openstack_rbd_backend.log
+
+######################################################################
+# For ansible
+#
+changed=false
+failed=false
+rc=0
+
+# redirect anything to logfile but ansible response
+exec 3>/dev/stdout >> $logfile 2>&1
+exit_ansible() {
+	local x
+	if [ "$1" != "" ]; then
+		rc=$1
+	fi
+	if [ $rc -ne 0 ]; then
+		failed=true
+	fi
+	if [ ! -z "$msg" ]; then
+		x=", \"msg\": \"$msg\""
+	fi
+	echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }" >&3
+	exit $rc
+}
+
+is_true() {
+	local var=$1
+
+	if [ -z "$var" ]; then
+		return 1
+	fi
+	if [ "$var" -eq 0 ]; then
+		return 1
+	fi
+	if (echo "$var" | grep -qi "^\(false\|no\)$"); then
+		return 1
+	fi
+
+	return 0
+}
+
+######################################################################
+# 
+#
+alldone=1
+for h in $controllers; do
+	if [ ! -f "${marker}.cont.$h" ]; then
+		alldone=0
+	fi
+done
+for h in $computes; do
+	if [ ! -f "${marker}.comp.$h" ]; then
+		alldone=0
+	fi
+done
+if [ "$alldone" -eq 1 ]; then
+	exit_ansible
+fi
+
+ceph_ssh() {
+	su ceph -c "ssh $*"
+}
+run_ceph() {
+	su ceph -c "ceph $*"
+}
+
+# Create pools for OpenStack
+for p in volumes images backups vms; do
+	if (rbd -p $p ls >& /dev/null); then
+		continue
+	fi
+	ceph osd pool create $p $pgnum
+	if [ $? -ne 0 ]; then
+		failed=true
+	fi
+	changed=true
+done
+
+ceph auth get-or-create client.cinder \
+	mon 'allow r' \
+	osd 'allow class-read object_prefix rbd_children, allow rwx pool=volumes, allow rwx pool=vms, allow rx pool=images'
+ceph auth get-or-create client.glance \
+	mon 'allow r' \
+	osd 'allow class-read object_prefix rbd_children, allow rwx pool=images'
+ceph auth get-or-create client.cinder-backup \
+	mon 'allow r' \
+	osd 'allow class-read object_prefix rbd_children, allow rwx pool=backups'
+# For controllers and compute nodes
+for h in ${nodes}; do
+	ceph_ssh $h sudo apt-get install -y ceph-common
+	ceph_ssh $h sudo mkdir -p /etc/ceph
+	ceph_ssh $h sudo tee /etc/ceph/ceph.conf < /etc/ceph/ceph.conf
+done
+
+# For controllers (glance-api, cinder-volume, cinder-backup)
+install_client_key() {
+	local host=$1
+	local client=$2
+	local owner=$3
+	local keyfile=/etc/ceph/ceph.${client}.keyring
+	ceph auth get-or-create ${client} | \
+		ceph_ssh $host sudo tee ${keyfile}
+	ceph_ssh $host sudo chown ${owner} ${keyfile}
+}
+
+for h in ${controllers}; do
+	if [ -f "${marker}.cont.$h" ]; then
+		continue
+	fi
+	ceph_ssh $h sudo apt-get install -y python-ceph
+	install_client_key $h client.glance glance:glance
+	install_client_key $h client.cinder cinder:cinder
+	install_client_key $h client.cinder-backup cinder:cinder
+	touch ${marker}.cont.${h}
+done
+
+# For each compute nodes
+key=$(ceph auth get-key client.cinder)
+cat > $secretfile <<EOF
+<secret ephemeral='no' private='no'>
+  <uuid>${uuid}</uuid>
+  <usage type='ceph'>
+    <name>client.cinder secret</name>
+  </usage>
+</secret>
+EOF
+for h in ${computes}; do
+	if [ -f "${marker}.comp.$h" ]; then
+		continue
+	fi
+	su - ceph -c "scp $secretfile $h:$secretfile"
+	ceph_ssh $h sudo virsh secret-define --file $secretfile
+	ceph_ssh $h sudo virsh secret-set-value --secret ${uuid} --base64 ${key}
+	ceph_ssh $h rm -f $secretfile
+	# cinder client key is needed for qemu + librbd
+	install_client_key $h client.cinder root:root
+	touch ${marker}.comp.${h}
+done
+#rm -f $secretfile
+
+exit_ansible
