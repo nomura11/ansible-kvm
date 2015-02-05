@@ -1,0 +1,94 @@
+#!/bin/bash
+
+. $1
+
+changed=false
+failed=false
+rc=0
+logfile=/tmp/ansible_ceph_deploy.log
+
+# reditrect anything but ansible response to $logfile
+exec 3>/dev/stdout >> $logfile 2>&1
+function exit_ansible() {
+        if [ $rc -ne 0 ]; then
+                failed=true
+        fi
+        echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed }" >&3
+        exit $rc
+}
+
+# hack
+if [ "$(whoami)" != "ceph" ]; then
+	script=$(basename $0)
+	args=$(basename $1)
+	cp $(readlink -f $0) ~ceph/$script
+	cp $(readlink -f $1) ~ceph/$args
+	chown ceph ~ceph/*
+	chmod +x ~ceph/$script
+	su - ceph ~ceph/$script ~ceph/$args >& ~ceph/deployer.log
+	tail -1 ~ceph/deployer.log
+	exit
+fi
+
+# ---------------------------------------------------------------
+
+workdir=$HOME/my-cluster
+#node1=s1
+#others="s2 s3"
+nodes="$node1 $others"
+#pubnet="172.17.0.0/16"
+#osds="s1:/var/local/osd1 s2:/var/local/osd1 s3:/var/local/osd1"
+
+# ---------------------------------------------------------------
+
+# XXX FIXME
+if [ -d $workdir ]; then
+	exit_ansible
+fi
+mkdir -p $workdir
+changed=true
+
+cat >> $HOME/.ssh/config <<EOF
+UserKnownHostsFile=/dev/null
+StrictHostKeyChecking=no
+ConnectTimeout=5
+PasswordAuthentication=no
+EOF
+
+cd $workdir
+
+# purge old data
+ceph-deploy purgedata ${nodes}
+ceph-deploy forgetkeys
+ceph-deploy purge ${nodes}
+
+
+ceph-deploy new ${node1}
+echo "osd pool default size = 2" >> ceph.conf
+echo "public network = $pubnet" >> ceph.conf
+
+ceph-deploy install ${nodes}
+ceph-deploy mon create-initial
+if [ ! -e ceph.client.admin.keyring ]; then
+	echo "Failed to initialize mon"
+	rc=1
+	exit_ansible
+fi
+
+ceph-deploy osd prepare ${osds}
+ceph-deploy osd activate ${osds}
+
+ceph-deploy admin ${nodes}
+
+for n in ${nodes}; do
+	ssh $n sudo chmod +r /etc/ceph/ceph.client.admin.keyring
+done
+ssh ${node1} ceph health
+ssh ${node1} ceph status
+
+ceph-deploy mon create ${others}
+ssh ${node1} ceph quorum_status --format json-pretty
+
+ssh ${node1} ceph health
+rc=$?
+exit_ansible
