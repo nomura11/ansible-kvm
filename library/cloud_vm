@@ -188,8 +188,8 @@ if [ $rc -eq 2 ]; then
 	changed=1
 	rc=0
 	if is_true $startvm; then
-		msg="started $name"
-		virsh start $name >> $logfile 2>&1
+		msg="started $vmname"
+		virsh start $vmname >> $logfile 2>&1
 	fi
 fi
 
