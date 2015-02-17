@@ -205,7 +205,7 @@ create_node() {
 CPUS=${cpus} MEM=${mem} NETWORKS="${networks}" create_node $vmname $*
 rc=$?
 if [ $rc -eq 2 ]; then
-	changed=1
+	changed=true
 	rc=0
 	if is_true $startvm; then
 		msg="started $vmname"
