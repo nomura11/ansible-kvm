@@ -16,6 +16,7 @@ baseworkdir=$HOME/.create_cloud_vm/work
 data_disks=16
 startvm=false
 cloud_init=true
+key_copy_in=false
 
 # read args
 . $1
@@ -107,6 +108,14 @@ EOF
 	cdopt=" --disk path=${isofile},device=cdrom,bus=ide "
 fi
 
+if is_true ${key_copy_in}; then
+	if [ ! -f "$pubkeyfile" ]; then
+		msg="missing pubkey"
+		exit_ansible 1
+	fi
+	cp $pubkeyfile $workdir/authorized_keys
+fi
+
 ######################################################################
 #
 # Create VM
@@ -161,6 +170,15 @@ create_node() {
 	fi
 
 	virsh destroy ${name} >& /dev/null
+
+	if is_true ${key_copy_in}; then
+		virt-copy-in -d ${name} ${workdir}/authorized_keys /root/.ssh/
+		if [ $? -ne 0 ]; then
+			echo "Failed to copy pubkey in $name" >> $logfile
+			virsh undefine ${name} >& /dev/null
+			return 1
+		fi
+	fi
 
 	# XXXX
 	if [ -z "$ipaddr" ] || [ -z "$net0" ]; then
