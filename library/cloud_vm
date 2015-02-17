@@ -24,10 +24,15 @@ key_copy_in=false
 ######################################################################
 workdir=$baseworkdir/$vmname
 logfile=$baseworkdir/$vmname/create.log
+mkdir -p $workdir
 
 ######################################################################
 # For ansible
 #
+
+# redirect anything to logfile but ansible response
+exec 3>/dev/stdout >> $logfile 2>&1
+
 changed=false
 failed=false
 rc=0
@@ -36,14 +41,14 @@ exit_ansible() {
 	if [ "$1" != "" ]; then
 		rc=$1
 	fi
-        if [ "$rc" != "0" ]; then
-                failed=true
-        fi
+	if [ "$rc" != "0" ]; then
+		failed=true
+	fi
 	if [ ! -z "$msg" ]; then
 		x=", \"msg\": \"$msg\""
 	fi
-        echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }"
-        exit $rc
+	echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }" >&3
+	exit $rc
 }
 
 is_true() {
@@ -68,8 +73,6 @@ if [ -z "$vmname" ] || [ ! -f "$baseimage" ]; then
 	msg="missing file"
 	exit_ansible 1
 fi
-
-mkdir -p $workdir
 
 ######################################################################
 #
@@ -99,7 +102,7 @@ EOF
 	(cd $workdir;
 	 genisoimage -output $isofile \
 		-joliet -rock -input-charset utf-8 \
-		-volid cidata user-data meta-data) >> $logfile 2>&1
+		-volid cidata user-data meta-data)
 	if [ ! -e $isofile ]; then
 		msg="iso creation failed"
 		exit_ansible 1
@@ -129,7 +132,7 @@ create_node() {
 	local netopts
 
 	if virsh dominfo $name >& /dev/null ; then
-		echo "Domain $name already exists" >> $logfile
+		echo "Domain $name already exists"
 		return 0
 	fi
 
@@ -163,9 +166,9 @@ create_node() {
 		${diskopts} \
 		${cdopt} \
 		${netopts} \
-		--import --noautoconsole --graphics vnc >> $logfile 2>&1
+		--import --noautoconsole --graphics vnc
 	if [ $? -ne 0 ]; then
-		echo "Creation of $name failed" >> $logfile
+		echo "Creation of $name failed"
 		return 1
 	fi
 
@@ -174,7 +177,7 @@ create_node() {
 	if is_true ${key_copy_in}; then
 		virt-copy-in -d ${name} ${workdir}/authorized_keys /root/.ssh/
 		if [ $? -ne 0 ]; then
-			echo "Failed to copy pubkey in $name" >> $logfile
+			echo "Failed to copy pubkey in $name"
 			virsh undefine ${name} >& /dev/null
 			return 1
 		fi
@@ -187,10 +190,9 @@ create_node() {
 
 	local mac=$(virsh domiflist $name | awk "\$3 == \"$net0\" {print \$5}")
 	local xml="<host mac='${mac}' name='${name}' ip='${ipaddr}' />"
-	virsh net-update $net0 add ip-dhcp-host "$xml" --live --config \
-		>> $logfile 2>&1
+	virsh net-update $net0 add ip-dhcp-host "$xml" --live --config
 	if [ $? -ne 0 ]; then
-		echo "Failed to update DHCP info for $name" >> $logfile
+		echo "Failed to update DHCP info for $name"
 		virsh undefine ${name} >& /dev/null
 		return 1
 	fi
@@ -207,7 +209,7 @@ if [ $rc -eq 2 ]; then
 	rc=0
 	if is_true $startvm; then
 		msg="started $vmname"
-		virsh start $vmname >> $logfile 2>&1
+		virsh start $vmname
 	fi
 fi
 

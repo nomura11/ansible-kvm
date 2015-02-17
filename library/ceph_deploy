@@ -7,15 +7,50 @@ failed=false
 rc=0
 logfile=/tmp/ansible_ceph_deploy.log
 
-# reditrect anything but ansible response to $logfile
+######################################################################
+# For ansible
+#
+
+# redirect anything to logfile but ansible response
 exec 3>/dev/stdout >> $logfile 2>&1
-function exit_ansible() {
-        if [ $rc -ne 0 ]; then
-                failed=true
-        fi
-        echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed }" >&3
-        exit $rc
+
+changed=false
+failed=false
+rc=0
+exit_ansible() {
+	local x
+	if [ "$1" != "" ]; then
+		rc=$1
+	fi
+	if [ "$rc" != "0" ]; then
+		failed=true
+	fi
+	if [ ! -z "$msg" ]; then
+		x=", \"msg\": \"$msg\""
+	fi
+	echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }" >&3
+	exit $rc
 }
+
+is_true() {
+	local var=$1
+
+	if [ -z "$var" ]; then
+		return 1
+	fi
+	if [ "$var" = "0" ]; then
+		return 1
+	fi
+	if (echo "$var" | grep -qi "^\(false\|no\)$"); then
+		return 1
+	fi
+
+	return 0
+}
+
+######################################################################
+# 
+#
 
 # hack
 if [ "$(whoami)" != "ceph" ]; then

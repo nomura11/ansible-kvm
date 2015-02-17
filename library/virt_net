@@ -21,43 +21,50 @@ state=autostart
 . $1
 
 xmlfile=$HOME/.virt-nets/$name.xml
+logfile=$HOME/.virt-nets/log
 
 ######################################################################
 # For ansible
 #
+
+# redirect anything to logfile but ansible response
+exec 3>/dev/stdout >> $logfile 2>&1
+
 changed=false
 failed=false
 rc=0
 exit_ansible() {
-        local x
-        if [ "$1" != "" ]; then
-                rc=$1
-        fi
-        if [ "$rc" != "0" ]; then
-                failed=true
-        fi
-        if [ ! -z "$msg" ]; then
-                x=", \"msg\": \"$msg\""
-        fi
-        echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }"
-        exit $rc
+	local x
+	if [ "$1" != "" ]; then
+		rc=$1
+	fi
+	if [ "$rc" != "0" ]; then
+		failed=true
+	fi
+	if [ ! -z "$msg" ]; then
+		x=", \"msg\": \"$msg\""
+	fi
+	echo "{ \"rc\": $rc, \"changed\": $changed, \"failed\": $failed $x }" >&3
+	exit $rc
 }
 
 is_true() {
-        local var=$1
+	local var=$1
 
-        if [ -z "$var" ]; then
-                return 1
-        fi
-        if [ "$var" = "0" ]; then
-                return 1
-        fi
-        if (echo "$var" | grep -qi "^\(false\|no\)$"); then
-                return 1
-        fi
+	if [ -z "$var" ]; then
+		return 1
+	fi
+	if [ "$var" = "0" ]; then
+		return 1
+	fi
+	if (echo "$var" | grep -qi "^\(false\|no\)$"); then
+		return 1
+	fi
 
-        return 0
+	return 0
 }
+
+######################################################################
 
 create_net_xml() {
 	local uuid=$(uuidgen)
@@ -83,7 +90,7 @@ create_net_xml() {
 		if [ "${dhcp}" ]; then
 			s=${dhcp%%:*}
 			e=${dhcp##*:}
-    			ent="$ent<dhcp><range start='$s' end='$e' /></dhcp>"
+			ent="$ent<dhcp><range start='$s' end='$e' /></dhcp>"
 		fi
 		ipentry="$ent</ip>"
 	fi
@@ -125,13 +132,11 @@ if [ "$state" = "undefined" ]; then
 	fi
 	if [ "$started" = "yes" ]; then
 		if ! virsh net-destroy $name; then
-			failed=true
 			exit_ansible 2
 		fi
 		changed=true
 	fi
 	if ! virsh net-undefine $name; then
-		failed=true
 		exit_ansible 2
 	fi
 	changed=true

@@ -23,18 +23,19 @@ logfile=/tmp/ansible_openstack_rbd_backend.log
 ######################################################################
 # For ansible
 #
-changed=false
-failed=false
-rc=0
 
 # redirect anything to logfile but ansible response
 exec 3>/dev/stdout >> $logfile 2>&1
+
+changed=false
+failed=false
+rc=0
 exit_ansible() {
 	local x
 	if [ "$1" != "" ]; then
 		rc=$1
 	fi
-	if [ $rc -ne 0 ]; then
+	if [ "$rc" != "0" ]; then
 		failed=true
 	fi
 	if [ ! -z "$msg" ]; then
@@ -50,7 +51,7 @@ is_true() {
 	if [ -z "$var" ]; then
 		return 1
 	fi
-	if [ "$var" -eq 0 ]; then
+	if [ "$var" = "0" ]; then
 		return 1
 	fi
 	if (echo "$var" | grep -qi "^\(false\|no\)$"); then
