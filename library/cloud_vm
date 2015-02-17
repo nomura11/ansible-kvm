@@ -14,6 +14,7 @@ baseimage=$imagedir/test.img
 pubkeyfile=$HOME/.ssh/id_rsa.pub
 baseworkdir=$HOME/.create_cloud_vm/work
 data_disks=16
+rootdisksize=
 startvm=false
 cloud_init=true
 key_copy_in=false
@@ -148,13 +149,20 @@ create_node() {
 	if [ ! -f ${imagedir}/${name}.img ]; then
 		return 1
 	fi
+	if [ "$rootdisksize" ]; then
+		qemu-img resize ${imagedir}/${name}.img "$rootdisksize"
+		if [ $? -ne 0 ]; then
+			echo "Resize failed: ${name}.img $rootdisksize"
+			return $?
+		fi
+	fi
 
 	diskopts=
 	nr=2
 	for sz in ${data_disks}; do
 		dpath=${imagedir}/${name}-${nr}.img
 		if [ -e "$dpath" ]; then
-			exit_ansible 1
+			return 1
 		fi
 		qemu-img create -f qcow2 ${dpath} ${sz}G
 		diskopts="$diskopts --disk path=${dpath}${dopt},size=$sz"
