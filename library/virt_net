@@ -22,6 +22,7 @@ state=autostart
 
 xmlfile=$HOME/.virt-nets/$name.xml
 logfile=$HOME/.virt-nets/log
+mkdir -p $(dirname $logfile)
 
 ######################################################################
 # For ansible
