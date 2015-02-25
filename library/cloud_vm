@@ -125,7 +125,7 @@ fi
 # Create VM
 #
 
-dopt=",format=qcow2,bus=virtio"
+dopt=",format=qcow2,bus=virtio,cache=none"
 nopt=",model=virtio"
 
 create_node() {
