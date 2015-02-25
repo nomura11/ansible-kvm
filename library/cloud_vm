@@ -127,6 +127,7 @@ fi
 
 dopt=",format=qcow2,bus=virtio,cache=none"
 nopt=",model=virtio"
+qcopt="-o compat=0.10"
 
 create_node() {
 	local name=$1
@@ -164,7 +165,7 @@ create_node() {
 		if [ -e "$dpath" ]; then
 			return 1
 		fi
-		qemu-img create -f qcow2 ${dpath} ${sz}G
+		qemu-img create -f qcow2 ${qcopt} ${dpath} ${sz}G
 		diskopts="$diskopts --disk path=${dpath}${dopt},size=$sz"
 		nr=$((nr + 1))
 	done
