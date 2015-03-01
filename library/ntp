@@ -139,11 +139,13 @@ fi
 # Synchronize
 #
 
-if ! is_sync && is_true "$waitsync"; then
+if ! is_sync; then
 	service $service stop
 	ntpdate $ntpserver
 	service $service start
-	wait_sync
+	if is_true "$waitsync"; then
+		wait_sync
+	fi
 fi
 
 exit_ansible
