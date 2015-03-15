@@ -19,6 +19,7 @@ startvm=false
 cloud_init=true
 key_copy_in=false
 enable_root=true
+use_virtio_scsi=false
 
 # read args
 . $1
@@ -129,7 +130,15 @@ fi
 # Create VM
 #
 
-dopt=",format=qcow2,bus=virtio,cache=none"
+if is_true ${use_virtio_scsi}; then
+	bus="scsi"
+	diskcont="--controller type=scsi,model=virtio-scsi"
+else
+	bus="virtio"
+	diskcont=""
+fi
+
+dopt=",format=qcow2,bus=$bus,cache=none"
 nopt=",model=virtio"
 qcopt="-o compat=0.10"
 
@@ -176,6 +185,7 @@ create_node() {
 	virt-install --quiet --name ${name} \
 		--vcpus ${CPUS} --ram ${MEM} \
 		--disk path=${imagedir}/${name}.img${dopt} \
+		${diskcont} \
 		${diskopts} \
 		${cdopt} \
 		${netopts} \
