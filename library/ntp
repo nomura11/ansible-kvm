@@ -53,16 +53,21 @@ is_true() {
 # 
 #
 
-file=/etc/ntp.conf
-service=ntpd
 use_chrony=false
 if [ -e /etc/chrony.conf ]; then
 	echo "Using chronyd"
 	file=/etc/chrony.conf
 	service=chronyd
 	use_chrony=true
-elif [ -e /etc/init.d/ntp ]; then
-	service=ntp
+elif [ -e /etc/ntp.conf ]; then
+	file=/etc/ntp.conf
+	service=ntpd
+	if [ -e /etc/init.d/ntp ]; then
+		service=ntp
+	fi
+else
+	echo "Cannot find ntp/chrony"
+	ansible_exit 1
 fi
 
 function is_sync() {
