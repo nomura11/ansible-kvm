@@ -18,6 +18,7 @@ rootdisksize=
 startvm=false
 cloud_init=true
 key_copy_in=false
+enable_root=true
 
 # read args
 . $1
@@ -94,6 +95,9 @@ ssh_pwauth: True
 ssh_authorized_keys:
   - $(cat $pubkeyfile)
 EOF
+	if is_true ${enable_root}; then
+		echo "disable_root: 0" >> $workdir/user-data
+	fi
 
 	cat <<EOF > $workdir/meta-data 
 instance-id: id-$vmname
