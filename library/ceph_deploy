@@ -12,7 +12,7 @@ logfile=/tmp/ansible_ceph_deploy.log
 #
 
 # redirect anything to logfile but ansible response
-exec 3>/dev/stdout >> $logfile 2>&1
+exec 3>>/dev/stdout >> $logfile 2>&1
 
 changed=false
 failed=false

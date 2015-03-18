@@ -25,7 +25,7 @@ logfile=/tmp/ansible_openstack_rbd_backend.log
 #
 
 # redirect anything to logfile but ansible response
-exec 3>/dev/stdout >> $logfile 2>&1
+exec 3>>/dev/stdout >> $logfile 2>&1
 
 changed=false
 failed=false
