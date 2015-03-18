@@ -20,6 +20,7 @@ cloud_init=true
 key_copy_in=false
 enable_root=true
 use_virtio_scsi=false
+use_nested_kvm=false
 
 # read args
 . $1
@@ -137,6 +138,13 @@ else
 	bus="virtio"
 	diskcont=""
 fi
+cpuopts=""
+if is_true ${use_nested_kvm}; then
+	if [ "$(cat /sys/module/kvm_intel/parameters/nested)" != "Y" ]; then
+		echo "WARNING: nested kvm seems disabled on this host"
+	fi
+	cpuopts="--cpu host-model"
+fi
 
 dopt=",format=qcow2,bus=$bus,cache=none"
 nopt=",model=virtio"
@@ -184,6 +192,7 @@ create_node() {
 	done
 	virt-install --quiet --name ${name} \
 		--vcpus ${CPUS} --ram ${MEM} \
+		${cpuopts} \
 		--disk path=${imagedir}/${name}.img${dopt} \
 		${diskcont} \
 		${diskopts} \
