@@ -1,0 +1,8 @@
+host1.localdomain
+host2.localdomain
+
+[all:vars]
+ntp_server = ntp.localdomain
+cent7_image = http://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud.qcow2
+cent6_image = http://cloud.centos.org/centos/6/images/CentOS-6-x86_64-GenericCloud.qcow2
+ubuntu_image = https://cloud-images.ubuntu.com/trusty/current/trusty-server-cloudimg-amd64-disk1.img

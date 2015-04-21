@@ -1,0 +1,68 @@
+---
+- name: Generate ssh keys for VM
+  ssh_keygen: keyfile="/root/.ssh/id_rsa"
+
+- name: Install libselinux-python
+  yum: name=libselinux-python state=present
+
+- name: Install squid
+  yum: name=squid state=present
+
+- name: Install ntpdate
+  yum: name=ntpdate state=present
+
+- name: Setup NTP (wait for sync later)
+  ntp: ntpserver="{{ntp_server}}" waitsync=false
+
+###################################################################
+#
+- name: Install KVM packages
+  yum: name={{item}} state=present
+  with_items:
+    - libvirt
+    - qemu-kvm
+    - libguestfs-tools
+    - genisoimage
+
+- name: Install RHEL6-specific packages
+  yum: name={{item}} state=present
+  with_items:
+    - python-virtinst
+    - ntp
+  when: ansible_os_family == "RedHat" and ansible_distribution_version < "7"
+
+- name: Install RHEL7-specific packages
+  yum: name={{item}} state=present
+  with_items:
+    - virt-install
+    - chrony
+  when: ansible_os_family == "RedHat" and ansible_distribution_version >= "7"
+
+- name: Install utilities
+  yum: name={{item}} state=present
+  with_items:
+    - dnsmasq-utils
+    - vim
+    - tcpdump
+
+###################################################################
+#
+- name: Wait for NTP sync
+  ntp: waitsync=true
+
+- name: Setup squid
+  shell: sed -i 's/^#cache_dir/cache_dir/' /etc/squid/squid.conf
+  changed_when: 0
+
+- name: Start squid
+  service: name=squid state=running enabled=yes
+
+- name: Start libvirtd
+  service: name=libvirtd state=running enabled=yes
+
+- name: Install utility scripts
+  copy: src={{item}} dest=/root/ mode=0755 owner=root
+  with_items:
+    - stop-vm-all.sh
+    - remove-vm-all.sh
+    - remove-vm.sh

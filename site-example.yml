@@ -1,0 +1,132 @@
+---
+###################################################################
+# Base
+
+- name: Setting up libvirt environment
+  hosts: all
+  roles:
+    - hypervisor
+
+###################################################################
+# Create virtual networks
+
+- name: Create virtual networks
+  hosts: all
+  gather_facts: True
+  tasks:
+    - name: Delete default network
+      virt_net:
+      args:
+        name: "default"
+        state: "undefined"
+
+    - name: Create management (NAT) network
+      virt_net:
+      args:
+        name: "{{item.name}}"
+        bridge: "vbr-{{item.br}}"
+        ip: "{{item.net}}.1"
+        mask: "255.255.255.0"
+        dhcp: "{{item.net}}.10:{{item.net}}.250"
+        dev: "{{ansible_default_ipv4.interface}}"
+        nat_port: "1024:65535"
+      with_items:
+        - { name: "management", net: "192.168.1", br: "mng1" }
+
+    - name: Create other networks
+      virt_net:
+      args:
+        name: "{{item.name}}"
+        bridge: "vbr-{{item.br}}"
+        ip: "{{item.net}}.1"
+        mask: "255.255.255.0"
+        dhcp: "{{item.net}}.10:{{item.net}}.250"
+      with_items:
+        - { name: "external", net: "192.168.110", br: "ext1" }
+        - { name: "internal", net: "192.168.120", br: "int1" }
+        - { name: "storage",  net: "192.168.130", br: "sto1" }
+
+###################################################################
+# Setup ansible
+
+- name: Install ansible on host
+  hosts: all
+  tasks:
+    - name: Install Ansible
+      yum: name=ansible state=present
+
+###################################################################
+
+- name: Setting up libvirt environment
+  hosts: all
+  gather_facts: False
+  tasks:
+#    - name: Download image file
+#      get_url: url="{{cent7_image}}" dest="/root/base.img"
+
+    - name: Select networks
+      set_fact: 
+        mngnet: "management"
+        extnet: "external"
+        intnet: "internal"
+        stonet: "storage"
+        mngaddr: "192.168.1"
+
+    - name: Creating controller node
+      cloud_vm:
+      args:
+        baseimage: "/root/base.img"
+        vmname: "{{ item.name }}"
+        cpus: "4"
+        mem: "8192"
+        networks: "{{ mngnet }}"
+        ipaddr: "{{ mngaddr }}.{{ item.ip }}"
+        rootdisksize: "128G"
+      with_items:
+        - { name: "vm-m1", ip: "171" }
+
+    - name: Creating network node
+      cloud_vm:
+      args:
+        baseimage: "/root/base.img"
+        vmname: "{{ item.name }}"
+        cpus: "2"
+        mem: "4096"
+        networks: "{{ mngnet }} {{ intnet }} {{ extnet }}"
+        ipaddr: "{{ mngaddr }}.{{ item.ip }}"
+      with_items:
+        - { name: "vm-n1", ip: "172" }
+
+    - name: Creating compute nodes
+      cloud_vm:
+      args:
+        baseimage: "/root/base.img"
+        vmname: "{{ item.name }}"
+        cpus: "4"
+        mem: "8192"
+        networks: "{{ mngnet }} {{ intnet }} {{ stonet }}"
+        ipaddr: "{{ mngaddr }}.{{ item.ip }}"
+        rootdisksize: "128G"
+      with_items:
+        - { name: "vm-c1", ip: "173" }
+
+    - name: Creating storage nodes
+      cloud_vm:
+      args:
+        baseimage: "/root/base.img"
+        vmname: "{{ item.name }}"
+        cpus: "2"
+        mem: "4096"
+        networks: "{{ mngnet }} {{ stonet }}"
+        ipaddr: "{{ mngaddr }}.{{ item.ip }}"
+        data_disks: "64"
+      with_items:
+        - { name: "vm-s1", ip: "174" }
+
+    - name: Start all VMs
+      virt: name={{ item }} state=running
+      with_items:
+        - "vm-m1"
+        - "vm-n1"
+        - "vm-c1"
+        - "vm-s1"
