@@ -63,6 +63,7 @@
 - name: Install utility scripts
   copy: src={{item}} dest=/root/ mode=0755 owner=root
   with_items:
+    - snapshot-vm-all.sh
     - stop-vm-all.sh
     - remove-vm-all.sh
     - remove-vm.sh

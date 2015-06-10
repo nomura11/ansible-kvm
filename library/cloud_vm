@@ -21,6 +21,7 @@ key_copy_in=false
 enable_root=true
 use_virtio_scsi=false
 use_nested_kvm=false
+snapshotname=
 
 # read args
 . $1
@@ -239,6 +240,13 @@ rc=$?
 if [ $rc -eq 2 ]; then
 	changed=true
 	rc=0
+	if [ ! -z "$snapshotname" ]; then
+		virsh snapshot-create-as $vmname "$snapshotname"
+		if [ $? -ne 0 ]; then
+			echo "Failed to create snapshot of $vmname"
+			rc=1
+		fi
+	fi
 	if is_true $startvm; then
 		msg="started $vmname"
 		virsh start $vmname
