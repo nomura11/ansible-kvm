@@ -8,6 +8,7 @@ imagedir=/var/lib/libvirt/images
 cpus=2
 mem=4096
 networks="management"
+macaddr=""
 ipaddr=""
 vmname=testvm
 baseimage=$imagedir/test.img
@@ -162,10 +163,25 @@ create_node() {
 
 	net0=
 	for net in $NETWORKS; do
+		if (virsh net-uuid ${net}); then
+			# virtual network
+			netopts="$netopts --net network=${net}${nopt}"
+		elif [ -d "/sys/class/net/${net}/bridge" ]; then
+			# bridge
+			netopts="$netopts --net bridge=${net}${nopt}"
+		elif (virsh iface-mac ${net}); then
+			# macvtap
+			netopts="$netopts --net type=direct,source=${net}${nopt}"
+		else
+			msg="Unknown network type $net"
+			return 1
+		fi
 		if [ -z "$net0" ]; then
 			net0=$net
+			if [ "$macaddr" ]; then
+				netopts="$netopts,mac=$macaddr"
+			fi
 		fi
-		netopts="$netopts --net network=${net}${nopt}"
 	done
 
 	cp ${baseimage} ${imagedir}/${name}.img
