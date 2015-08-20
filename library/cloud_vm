@@ -23,6 +23,7 @@ enable_root=true
 use_virtio_scsi=false
 use_nested_kvm=false
 snapshotname=
+copyonwrite=
 
 # read args
 . $1
@@ -184,7 +185,11 @@ create_node() {
 		fi
 	done
 
-	cp ${baseimage} ${imagedir}/${name}.img
+	if is_true ${copyonwrite}; then
+		qemu-img create -f qcow2 -o backing_file=${baseimage} ${imagedir}/${name}.img
+	else
+		cp ${baseimage} ${imagedir}/${name}.img
+	fi
 	if [ ! -f ${imagedir}/${name}.img ]; then
 		return 1
 	fi
