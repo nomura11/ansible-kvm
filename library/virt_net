@@ -11,6 +11,7 @@ bridge=
 ip=
 mask=
 dhcp=
+domainname=
 dev=
 nat_port=
 state=autostart
@@ -85,6 +86,9 @@ create_net_xml() {
 		forwardentry="$ent</forward>"
 	fi
 
+	if [ "${domainname}" ]; then
+		domainentry="<domain name='$domainname' />"
+	fi
 
 	if [ "${ip}" -a "${mask}" ]; then
 		ent="<ip address='$ip' netmask='$mask'>"
@@ -102,6 +106,7 @@ create_net_xml() {
   <name>${name}</name>
   <uuid>${uuid}</uuid>
   ${forwardentry}
+  ${domainentry}
   <bridge name='${bridge}' stp='on' delay='0' />
   ${ipentry}
 </network>
